@@ -1,5 +1,7 @@
 import graph.Edge;
 import graph.WeightedGraph;
+import mst.Kruskal;
+import mst.MstResult;
 
 public class Main {
     public static void main(String[] args) {
@@ -15,5 +17,14 @@ public class Main {
             System.out.printf("District %d <-> District %d: weight %d%n",
                     road.from(), road.to(), road.weight());
         }
+
+        MstResult network = Kruskal.compute(city);
+        System.out.println("\nKruskal infrastructure plan:");
+        for (Edge road : network.edges()) {
+            System.out.printf("Build road %d <-> %d: cost %d%n",
+                    road.from(), road.to(), road.weight());
+        }
+        System.out.printf("Total cost: %d%nConnected: %s%nComponents: %d%n",
+                network.totalWeight(), network.connected(), network.componentCount());
     }
 }

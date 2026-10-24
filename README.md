@@ -24,18 +24,18 @@ bash scripts/run.sh
 bash scripts/test.sh
 ```
 
-The current demo prints a four-district undirected network. Algorithm demonstrations will be added with their implementations. Compiled classes are written to the ignored `build/` directory.
+The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It also reports whether all districts are connected and the number of remaining components. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation and disjoint set union structure are implemented. The remaining algorithm implementations are in progress.
+The graph representation, disjoint set union structure, and Kruskal's algorithm are implemented. The remaining algorithm implementations are in progress.
 
 ```text
 src/
   Main.java
   graph/          Weighted graph and edge representation
   dsu/            Disjoint sets with path compression and union by size
-  mst/            Kruskal and Prim (planned)
+  mst/            Kruskal and immutable MST results; Prim is planned
   connectivity/   Topological ordering and SCC (planned)
   shortestpath/   Dijkstra (planned)
 tests/            Java assertion-based correctness tests
@@ -49,9 +49,13 @@ results/
 
 `Edge` is an immutable Java record with integer endpoints and weight. The graph accepts any integer weight, since negative weights can be valid for MST algorithms; Dijkstra will enforce its own non-negative-weight requirement. Invalid vertex IDs are rejected before any change to the graph. Read methods expose unmodifiable live views, so callers can traverse connections without bypassing graph validation.
 
-`DisjointSetUnion` maintains a partition of element IDs from `0` to `V - 1` using parent and component-size arrays. Initially each element is its own component. `find` first walks to the root and then redirects every visited element directly to that root (path compression). Both passes are iterative, so no recursion stack is needed. `union` attaches the smaller component's root to the larger component's root, updates its size, and decreases the component count. It returns `true` only when two different components were merged; repeated or self unions return `false`. This result will let Kruskal reject edges whose endpoints are already connected.
+`DisjointSetUnion` maintains a partition of element IDs from `0` to `V - 1` using parent and component-size arrays. Initially each element is its own component. `find` first walks to the root and then redirects every visited element directly to that root (path compression). Both passes are iterative, so no recursion stack is needed. `union` attaches the smaller component's root to the larger component's root, updates its size, and decreases the component count. It returns `true` only when two different components were merged; repeated or self unions return `false`. Kruskal uses this result to reject edges whose endpoints are already connected.
 
 The DSU also provides `connected`, `componentSize`, and `componentCount`. Representatives identify components and may change after a union; their numeric IDs do not indicate component size or ordering. Negative element counts and out-of-range element IDs are rejected. An empty DSU has zero components, and a single element starts in a component of size one.
+
+`Kruskal.compute(graph)` copies the logical edge list, sorts it by ascending weight, and accepts an edge only when DSU can merge its endpoint components. This avoids cycles and naturally excludes self-loops. Once the graph has one component, the algorithm can stop. The input graph and its edge order are preserved. Directed graphs are rejected; parallel edges, duplicate weights, and negative weights are supported. Weight comparisons avoid integer subtraction, and the total is accumulated in a `long` so that sums of integer edge weights do not overflow an `int`.
+
+`MstResult` contains an immutable snapshot of the selected edges, their total weight, and the remaining component count. For a connected graph, this is an MST with `V - 1` edges. For a disconnected graph, it is a minimum spanning forest with `V - C` edges, where `C` is the component count, and `connected()` returns `false`. A single vertex is connected with zero edges and cost zero. An empty graph has zero components, zero cost, and `connected() == false` by this implementation's convention. Different MSTs can contain different edges when weights tie; their minimum total weight is the quantity to compare.
 
 ## Complexity Analysis
 
@@ -68,7 +72,9 @@ For DSU, let **V** be the number of elements:
 
 Here **α(V)** is the inverse Ackermann function, which grows extremely slowly. Union by size alone bounds the tree height by O(log V): an element's depth can increase only when its component is attached to one at least as large, so that component's size at least doubles. Path compression flattens the visited path, making later searches cheaper. Together the optimizations give O(V + m α(V)) total time for initialization followed by **m** find/union operations. The two arrays use **O(V)** total space, with **O(1)** additional space per operation.
 
-Kruskal, Prim, SCC, topological ordering, and Dijkstra analyses will be added alongside their implementations.
+Kruskal copies and sorts **E** logical edges, initializes DSU for **V** vertices, and makes at most **E** union attempts. Its time is **O(V + E log(E + 1) + E α(V))**, including DSU initialization, sorting, and edge processing. For a connected graph with at least two vertices, this is usually written as **O(E log E)**. The full expression also accounts for graphs with many isolated vertices or no edges. Increasing E adds sorting and union work; increasing V adds DSU initialization and storage. The copied edge list, sort workspace, DSU arrays, and selected edges require **O(V + E)** additional space beyond the input graph.
+
+Prim, SCC, topological ordering, and Dijkstra analyses will be added alongside their implementations.
 
 ## Experimental Setup
 
@@ -98,6 +104,8 @@ Graph tests cover directed edges, symmetric undirected connections, isolated and
 
 DSU tests cover separate components, transitive connectivity, repeated and self unions, component sizes and counts, union by size in both argument orders, repeated finds over a balanced merge sequence of 1,024 elements, empty/single-element sets, and invalid inputs. A fixed-seed test compares 150 unions on 24 elements against an independent reference that tracks components by relabeling every member; it checks every pair's connectivity and every component size after each merge.
 
+Kruskal tests cover the hand-calculated cost-17 example, disconnected graphs, isolated vertices, single/empty graphs, multiple valid MSTs with equal weights, parallel edges, self-loops, negative and zero weights, extreme integer weights, directed-input rejection, and immutable results. They check selected-edge membership, summed weight, connectivity, and the forest edge count using an independent breadth-first traversal. A fixed-seed check compares 60 graphs of up to five vertices with an exhaustive search over edge subsets, verifying that the returned forest has minimum possible weight. Repeated runs preserve the graph's original edge order, and previously returned results remain unchanged after graph updates.
+
 ## Conclusion
 
-The graph representation and DSU provide the data structures needed for infrastructure planning. Conclusions about algorithm suitability and performance will be written after all implementations and experiments are complete.
+Kruskal now uses the graph representation and DSU to find a minimum-cost infrastructure network, reporting when the districts cannot all be connected. Conclusions comparing algorithm suitability and performance will be written after the remaining implementations and experiments are complete.
