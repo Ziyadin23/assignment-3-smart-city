@@ -2,6 +2,7 @@ import graph.Edge;
 import graph.WeightedGraph;
 import mst.Kruskal;
 import mst.MstResult;
+import mst.Prim;
 
 public class Main {
     public static void main(String[] args) {
@@ -26,5 +27,9 @@ public class Main {
         }
         System.out.printf("Total cost: %d%nConnected: %s%nComponents: %d%n",
                 network.totalWeight(), network.connected(), network.componentCount());
+
+        MstResult primNetwork = Prim.compute(city);
+        System.out.printf("%nPrim total cost: %d%nMST weights agree: %s%n",
+                primNetwork.totalWeight(), network.totalWeight() == primNetwork.totalWeight());
     }
 }

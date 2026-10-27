@@ -24,18 +24,18 @@ bash scripts/run.sh
 bash scripts/test.sh
 ```
 
-The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It also reports whether all districts are connected and the number of remaining components. Compiled classes are written to the ignored `build/` directory.
+The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation, disjoint set union structure, and Kruskal's algorithm are implemented. The remaining algorithm implementations are in progress.
+The graph representation, disjoint set union structure, Kruskal, and Prim are implemented. The remaining algorithm implementations are in progress.
 
 ```text
 src/
   Main.java
   graph/          Weighted graph and edge representation
   dsu/            Disjoint sets with path compression and union by size
-  mst/            Kruskal and immutable MST results; Prim is planned
+  mst/            Kruskal, Prim, and immutable MST results
   connectivity/   Topological ordering and SCC (planned)
   shortestpath/   Dijkstra (planned)
 tests/            Java assertion-based correctness tests
@@ -57,6 +57,8 @@ The DSU also provides `connected`, `componentSize`, and `componentCount`. Repres
 
 `MstResult` contains an immutable snapshot of the selected edges, their total weight, and the remaining component count. For a connected graph, this is an MST with `V - 1` edges. For a disconnected graph, it is a minimum spanning forest with `V - C` edges, where `C` is the component count, and `connected()` returns `false`. A single vertex is connected with zero edges and cost zero. An empty graph has zero components, zero cost, and `connected() == false` by this implementation's convention. Different MSTs can contain different edges when weights tie; their minimum total weight is the quantity to compare.
 
+`Prim.compute(graph)` grows a tree from an unvisited vertex using a binary-heap priority queue of frontier edges. Each visit marks its vertex and adds outgoing edges to unvisited neighbors. The cheapest queued edge extends the tree unless its destination has already been visited; such stale entries are discarded. When the queue empties, the algorithm restarts at another unvisited vertex, so disconnected graphs include every component and isolated vertex. It returns the same `MstResult` type and follows the same input and empty-graph conventions as Kruskal. Selected undirected edges may use the reverse orientation of the original logical edge.
+
 ## Complexity Analysis
 
 The adjacency list plus logical edge list uses **O(V + E)** space, including the reverse entries for undirected edges. Graph construction takes **O(V)** before edges are added. Adding an edge takes amortized **O(1)**; enumerating neighbors of vertex `v` takes **O(out-degree(v))**; enumerating all logical edges takes **O(E)**. Retrieving a read-only view or a vertex/edge count takes **O(1)**.
@@ -74,7 +76,9 @@ Here **α(V)** is the inverse Ackermann function, which grows extremely slowly. 
 
 Kruskal copies and sorts **E** logical edges, initializes DSU for **V** vertices, and makes at most **E** union attempts. Its time is **O(V + E log(E + 1) + E α(V))**, including DSU initialization, sorting, and edge processing. For a connected graph with at least two vertices, this is usually written as **O(E log E)**. The full expression also accounts for graphs with many isolated vertices or no edges. Increasing E adds sorting and union work; increasing V adds DSU initialization and storage. The copied edge list, sort workspace, DSU arrays, and selected edges require **O(V + E)** additional space beyond the input graph.
 
-Prim, SCC, topological ordering, and Dijkstra analyses will be added alongside their implementations.
+This implementation uses **lazy edge-based Prim**, without decrease-key: at most E logical edges enter the queue, and all adjacency entries are examined once. Its time is **O(V + E log(E + 1))** and additional space is **O(V + E)**, including the visited array, selected edges, and a queue that can hold O(E) entries. For connected simple graphs this is commonly written as O(E log V), since E is at most quadratic in V. The E-based bound also describes graphs with parallel edges. Larger E increases heap work and memory; larger V increases visited-array initialization and the scan for new components.
+
+SCC, topological ordering, and Dijkstra analyses will be added alongside their implementations.
 
 ## Experimental Setup
 
@@ -94,7 +98,9 @@ No benchmarks have been run yet. Measured tables and plots will be added after t
 
 ## Comparison and Discussion
 
-Performance comparisons and interpretation will follow the measured results. They will address Kruskal versus Prim, DSU optimizations, scaling of SCC and Dijkstra, topological ordering with and without cycles, and theoretical versus observed behavior.
+Kruskal orders all logical edges globally and uses DSU to avoid cycles. Prim grows one tree at a time using the adjacency lists and a heap, discarding frontier edges that have become obsolete. Both implementations produce the same minimum total weight and component count; selected edges can differ when weights tie. Both support disconnected networks by returning minimum spanning forests. The lazy Prim implementation can store O(E) queue entries, so a smaller heap or faster execution should not be assumed without measurements.
+
+Timing comparisons and interpretation will follow the measured results. They will address Kruskal versus Prim, DSU optimizations, scaling of SCC and Dijkstra, topological ordering with and without cycles, and theoretical versus observed behavior.
 
 ## Testing
 
@@ -106,6 +112,8 @@ DSU tests cover separate components, transitive connectivity, repeated and self 
 
 Kruskal tests cover the hand-calculated cost-17 example, disconnected graphs, isolated vertices, single/empty graphs, multiple valid MSTs with equal weights, parallel edges, self-loops, negative and zero weights, extreme integer weights, directed-input rejection, and immutable results. They check selected-edge membership, summed weight, connectivity, and the forest edge count using an independent breadth-first traversal. A fixed-seed check compares 60 graphs of up to five vertices with an exhaustive search over edge subsets, verifying that the returned forest has minimum possible weight. Repeated runs preserve the graph's original edge order, and previously returned results remain unchanged after graph updates.
 
+Prim tests cover the same MST conventions, stale heap entries, reverse edge orientations, negative/extreme weights, parallel roads, self-loops, immutable results, and directed-input rejection. A fixed-seed comparison checks 100 graphs: 50 guaranteed connected and 50 guaranteed disconnected. Each result must agree with Kruskal's weight and component count, use real input roads, and form a spanning forest under an independent breadth-first connectivity check.
+
 ## Conclusion
 
-Kruskal now uses the graph representation and DSU to find a minimum-cost infrastructure network, reporting when the districts cannot all be connected. Conclusions comparing algorithm suitability and performance will be written after the remaining implementations and experiments are complete.
+Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Conclusions comparing performance will be written after the remaining implementations and experiments are complete.
