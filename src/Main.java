@@ -1,3 +1,5 @@
+import connectivity.Kosaraju;
+import connectivity.SccResult;
 import connectivity.TopologicalResult;
 import connectivity.TopologicalSort;
 import graph.Edge;
@@ -44,5 +46,8 @@ public class Main {
         dependencies.addEdge(4, 2, 1);
         System.out.printf("Cycle detected after adding dependency 4 -> 2: %s%n",
                 !TopologicalSort.compute(dependencies).acyclic());
+        SccResult groups = Kosaraju.compute(dependencies);
+        System.out.printf("Strongly connected components (%d): %s%n",
+                groups.componentCount(), groups.components());
     }
 }

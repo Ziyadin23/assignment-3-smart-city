@@ -24,11 +24,11 @@ bash scripts/run.sh
 bash scripts/test.sh
 ```
 
-The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies and demonstrates cycle detection after adding a back edge. Compiled classes are written to the ignored `build/` directory.
+The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies, detects a cycle after adding a back edge, and reports three strongly connected groups: `{0}`, `{1}`, and `{2, 3, 4}`. Group/member order is not significant. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation, disjoint set union structure, Kruskal, Prim, and topological ordering are implemented. The remaining algorithm implementations are in progress.
+The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, and Kosaraju SCC are implemented. Dijkstra's shortest-path implementation remains in progress.
 
 ```text
 src/
@@ -36,7 +36,7 @@ src/
   graph/          Weighted graph and edge representation
   dsu/            Disjoint sets with path compression and union by size
   mst/            Kruskal, Prim, and immutable MST results
-  connectivity/   Topological ordering with cycle detection; SCC is planned
+  connectivity/   Kahn topological ordering and Kosaraju SCC
   shortestpath/   Dijkstra (planned)
 tests/            Java assertion-based correctness tests
 scripts/          Build, run, and test commands
@@ -61,6 +61,10 @@ The DSU also provides `connected`, `componentSize`, and `componentCount`. Repres
 
 `TopologicalSort.compute(graph)` implements Kahn's algorithm for directed graphs. It counts incoming edges, queues all zero-indegree vertices, and removes each queued vertex while decrementing its outgoing neighbors' indegrees. If every vertex is processed, `TopologicalResult` contains a complete immutable order with `acyclic() == true`. Otherwise the graph has a cycle and the result has `acyclic() == false` and an empty order, so a processable prefix cannot be mistaken for a complete answer. Disconnected DAGs include all isolated vertices. Empty directed graphs have a valid empty order, duplicate edges are counted individually, and edge weights do not affect ordering. Undirected input is rejected.
 
+`Kosaraju.compute(graph)` finds every strongly connected component of a directed graph. The first depth-first pass records each vertex after all its outgoing edges have been examined. The algorithm then builds a transpose by reversing every edge and starts traversals there in decreasing finishing order. Each second-pass traversal collects exactly one SCC. Both passes use explicit stacks, including saved edge iterators for first-pass finishing order, avoiding dependence on the Java call-stack depth.
+
+`SccResult` holds an immutable outer list of components and an immutable list of members for each component. Every vertex belongs to exactly one component, including isolated vertices; an empty directed graph has no components. Edge weights do not affect reachability, and duplicate edges or self-loops are supported. Undirected input is rejected. Component order and member order are traversal details rather than a ranking of districts. Vertices share an SCC only when each can reach the other; a one-way road between two SCCs does not merge them.
+
 ## Complexity Analysis
 
 The adjacency list plus logical edge list uses **O(V + E)** space, including the reverse entries for undirected edges. Graph construction takes **O(V)** before edges are added. Adding an edge takes amortized **O(1)**; enumerating neighbors of vertex `v` takes **O(out-degree(v))**; enumerating all logical edges takes **O(E)**. Retrieving a read-only view or a vertex/edge count takes **O(1)**.
@@ -82,7 +86,9 @@ This implementation uses **lazy edge-based Prim**, without decrease-key: at most
 
 Topological ordering takes **O(V + E)** time and **O(V)** additional space with adjacency lists and an array-backed FIFO queue. Counting indegrees and scanning outgoing edges each take O(E); initialization, queue operations, and result construction take O(V). Both DAG and cyclic inputs have the same worst-case bound; a cycle may leave part of the graph unprocessed, but all incoming edges are still counted. Increasing either vertices or edges increases the work linearly.
 
-SCC and Dijkstra analyses will be added alongside their implementations.
+Kosaraju takes **O(V + E)** time and **O(V + E)** additional space with adjacency lists. Each DFS pass visits every vertex and examines its outgoing edges once, and building the transpose also takes O(V + E). The transpose stores V adjacency lists and E reversed edges. Visited arrays, finishing order, explicit DFS stacks, and the output partition use O(V) space. More edges increase traversal work and transpose storage linearly; more vertices increase all vertex-indexed structures and the number of DFS starts in disconnected graphs.
+
+Dijkstra's complexity analysis will be added alongside its implementation.
 
 ## Experimental Setup
 
@@ -120,6 +126,8 @@ Prim tests cover the same MST conventions, stale heap entries, reverse edge orie
 
 Topological tests check vertex uniqueness, full coverage, and source-before-destination positions for every edge. Cases include disconnected DAGs, isolated vertices, empty/single-vertex graphs, a 1,000-vertex dependency chain, directed cycles, cycles alongside processable vertices, self-loops, duplicate edges, and immutable results. A fixed-seed test creates 80 DAGs using a shuffled hidden vertex order, verifies each returned order, then injects a two-vertex cycle and checks rejection. Tests accept any valid ordering rather than requiring one arbitrary tie order.
 
+SCC tests cover a known four-component graph, one large SCC, DAGs, isolated vertices, empty/single-vertex graphs, one-way bridges, self-loops, duplicate edges, transpose invariance, and immutable nested results. Every partition is checked for complete coverage and exactly one membership per vertex. A 10,000-vertex chain and its cycle-closing variant exercise both iterative passes without recursion. For 80 fixed-seed random directed graphs, an independent transitive-closure matrix checks that two vertices share a component exactly when they are mutually reachable. The same cases cross-check topological cycle detection: a DAG has only singleton SCCs and no self-loops.
+
 ## Conclusion
 
-Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Conclusions comparing performance will be written after the remaining implementations and experiments are complete.
+Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Kosaraju identifies mutually reachable groups even when cycles exist. Conclusions comparing performance will be written after the remaining implementation and experiments are complete.
