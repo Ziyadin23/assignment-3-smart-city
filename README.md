@@ -24,11 +24,11 @@ bash scripts/run.sh
 bash scripts/test.sh
 ```
 
-The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. Compiled classes are written to the ignored `build/` directory.
+The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies and demonstrates cycle detection after adding a back edge. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation, disjoint set union structure, Kruskal, and Prim are implemented. The remaining algorithm implementations are in progress.
+The graph representation, disjoint set union structure, Kruskal, Prim, and topological ordering are implemented. The remaining algorithm implementations are in progress.
 
 ```text
 src/
@@ -36,7 +36,7 @@ src/
   graph/          Weighted graph and edge representation
   dsu/            Disjoint sets with path compression and union by size
   mst/            Kruskal, Prim, and immutable MST results
-  connectivity/   Topological ordering and SCC (planned)
+  connectivity/   Topological ordering with cycle detection; SCC is planned
   shortestpath/   Dijkstra (planned)
 tests/            Java assertion-based correctness tests
 scripts/          Build, run, and test commands
@@ -59,6 +59,8 @@ The DSU also provides `connected`, `componentSize`, and `componentCount`. Repres
 
 `Prim.compute(graph)` grows a tree from an unvisited vertex using a binary-heap priority queue of frontier edges. Each visit marks its vertex and adds outgoing edges to unvisited neighbors. The cheapest queued edge extends the tree unless its destination has already been visited; such stale entries are discarded. When the queue empties, the algorithm restarts at another unvisited vertex, so disconnected graphs include every component and isolated vertex. It returns the same `MstResult` type and follows the same input and empty-graph conventions as Kruskal. Selected undirected edges may use the reverse orientation of the original logical edge.
 
+`TopologicalSort.compute(graph)` implements Kahn's algorithm for directed graphs. It counts incoming edges, queues all zero-indegree vertices, and removes each queued vertex while decrementing its outgoing neighbors' indegrees. If every vertex is processed, `TopologicalResult` contains a complete immutable order with `acyclic() == true`. Otherwise the graph has a cycle and the result has `acyclic() == false` and an empty order, so a processable prefix cannot be mistaken for a complete answer. Disconnected DAGs include all isolated vertices. Empty directed graphs have a valid empty order, duplicate edges are counted individually, and edge weights do not affect ordering. Undirected input is rejected.
+
 ## Complexity Analysis
 
 The adjacency list plus logical edge list uses **O(V + E)** space, including the reverse entries for undirected edges. Graph construction takes **O(V)** before edges are added. Adding an edge takes amortized **O(1)**; enumerating neighbors of vertex `v` takes **O(out-degree(v))**; enumerating all logical edges takes **O(E)**. Retrieving a read-only view or a vertex/edge count takes **O(1)**.
@@ -78,7 +80,9 @@ Kruskal copies and sorts **E** logical edges, initializes DSU for **V** vertices
 
 This implementation uses **lazy edge-based Prim**, without decrease-key: at most E logical edges enter the queue, and all adjacency entries are examined once. Its time is **O(V + E log(E + 1))** and additional space is **O(V + E)**, including the visited array, selected edges, and a queue that can hold O(E) entries. For connected simple graphs this is commonly written as O(E log V), since E is at most quadratic in V. The E-based bound also describes graphs with parallel edges. Larger E increases heap work and memory; larger V increases visited-array initialization and the scan for new components.
 
-SCC, topological ordering, and Dijkstra analyses will be added alongside their implementations.
+Topological ordering takes **O(V + E)** time and **O(V)** additional space with adjacency lists and an array-backed FIFO queue. Counting indegrees and scanning outgoing edges each take O(E); initialization, queue operations, and result construction take O(V). Both DAG and cyclic inputs have the same worst-case bound; a cycle may leave part of the graph unprocessed, but all incoming edges are still counted. Increasing either vertices or edges increases the work linearly.
+
+SCC and Dijkstra analyses will be added alongside their implementations.
 
 ## Experimental Setup
 
@@ -114,6 +118,8 @@ Kruskal tests cover the hand-calculated cost-17 example, disconnected graphs, is
 
 Prim tests cover the same MST conventions, stale heap entries, reverse edge orientations, negative/extreme weights, parallel roads, self-loops, immutable results, and directed-input rejection. A fixed-seed comparison checks 100 graphs: 50 guaranteed connected and 50 guaranteed disconnected. Each result must agree with Kruskal's weight and component count, use real input roads, and form a spanning forest under an independent breadth-first connectivity check.
 
+Topological tests check vertex uniqueness, full coverage, and source-before-destination positions for every edge. Cases include disconnected DAGs, isolated vertices, empty/single-vertex graphs, a 1,000-vertex dependency chain, directed cycles, cycles alongside processable vertices, self-loops, duplicate edges, and immutable results. A fixed-seed test creates 80 DAGs using a shuffled hidden vertex order, verifies each returned order, then injects a two-vertex cycle and checks rejection. Tests accept any valid ordering rather than requiring one arbitrary tie order.
+
 ## Conclusion
 
-Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Conclusions comparing performance will be written after the remaining implementations and experiments are complete.
+Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Conclusions comparing performance will be written after the remaining implementations and experiments are complete.

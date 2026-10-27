@@ -1,3 +1,5 @@
+import connectivity.TopologicalResult;
+import connectivity.TopologicalSort;
 import graph.Edge;
 import graph.WeightedGraph;
 import mst.Kruskal;
@@ -31,5 +33,16 @@ public class Main {
         MstResult primNetwork = Prim.compute(city);
         System.out.printf("%nPrim total cost: %d%nMST weights agree: %s%n",
                 primNetwork.totalWeight(), network.totalWeight() == primNetwork.totalWeight());
+
+        WeightedGraph dependencies = new WeightedGraph(5, true);
+        dependencies.addEdge(0, 2, 1);
+        dependencies.addEdge(1, 2, 1);
+        dependencies.addEdge(2, 3, 1);
+        dependencies.addEdge(3, 4, 1);
+        TopologicalResult ordering = TopologicalSort.compute(dependencies);
+        System.out.printf("%nService dependency order: %s%n", ordering.order());
+        dependencies.addEdge(4, 2, 1);
+        System.out.printf("Cycle detected after adding dependency 4 -> 2: %s%n",
+                !TopologicalSort.compute(dependencies).acyclic());
     }
 }
