@@ -7,6 +7,8 @@ import graph.WeightedGraph;
 import mst.Kruskal;
 import mst.MstResult;
 import mst.Prim;
+import shortestpath.Dijkstra;
+import shortestpath.ShortestPathResult;
 
 public class Main {
     public static void main(String[] args) {
@@ -49,5 +51,22 @@ public class Main {
         SccResult groups = Kosaraju.compute(dependencies);
         System.out.printf("Strongly connected components (%d): %s%n",
                 groups.componentCount(), groups.components());
+
+        WeightedGraph routes = new WeightedGraph(5, true);
+        routes.addEdge(0, 1, 7);
+        routes.addEdge(0, 2, 2);
+        routes.addEdge(2, 1, 1);
+        routes.addEdge(1, 3, 3);
+        routes.addEdge(2, 3, 8);
+        ShortestPathResult paths = Dijkstra.compute(routes, 0);
+        System.out.println("\nShortest routes from district 0:");
+        for (int vertex = 0; vertex < paths.vertexCount(); vertex++) {
+            if (paths.reachable(vertex)) {
+                System.out.printf("District %d: distance %d, path %s%n",
+                        vertex, paths.distanceTo(vertex), paths.pathTo(vertex));
+            } else {
+                System.out.printf("District %d: unreachable%n", vertex);
+            }
+        }
     }
 }

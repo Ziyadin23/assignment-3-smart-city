@@ -24,11 +24,11 @@ bash scripts/run.sh
 bash scripts/test.sh
 ```
 
-The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies, detects a cycle after adding a back edge, and reports three strongly connected groups: `{0}`, `{1}`, and `{2, 3, 4}`. Group/member order is not significant. Compiled classes are written to the ignored `build/` directory.
+The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies, detects a cycle after adding a back edge, and reports three strongly connected groups: `{0}`, `{1}`, and `{2, 3, 4}`. Group/member order is not significant. A separate route network demonstrates Dijkstra from district 0: distances to districts 0–3 are **0, 3, 2, 6**, and district 4 is unreachable. Both distances and actual paths are printed. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, and Kosaraju SCC are implemented. Dijkstra's shortest-path implementation remains in progress.
+The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, Kosaraju SCC, and Dijkstra are implemented. Experimental measurements and plots remain to be added.
 
 ```text
 src/
@@ -37,7 +37,7 @@ src/
   dsu/            Disjoint sets with path compression and union by size
   mst/            Kruskal, Prim, and immutable MST results
   connectivity/   Kahn topological ordering and Kosaraju SCC
-  shortestpath/   Dijkstra (planned)
+  shortestpath/   Dijkstra distances and path reconstruction
 tests/            Java assertion-based correctness tests
 scripts/          Build, run, and test commands
 results/
@@ -47,7 +47,7 @@ results/
 
 `WeightedGraph` stores an adjacency list and a list of logical edges. Vertices use consecutive IDs from `0` to `V - 1`. The constructor selects directed or undirected behavior. For an undirected road, both endpoints have an outgoing adjacency entry, while `edges()` lists that road once so that Kruskal will not process it twice. A self-loop is stored once in its vertex's adjacency list. Parallel edges and duplicate weights are preserved.
 
-`Edge` is an immutable Java record with integer endpoints and weight. The graph accepts any integer weight, since negative weights can be valid for MST algorithms; Dijkstra will enforce its own non-negative-weight requirement. Invalid vertex IDs are rejected before any change to the graph. Read methods expose unmodifiable live views, so callers can traverse connections without bypassing graph validation.
+`Edge` is an immutable Java record with integer endpoints and weight. The graph accepts any integer weight, since negative weights can be valid for MST algorithms; Dijkstra enforces its own non-negative-weight requirement. Invalid vertex IDs are rejected before any change to the graph. Read methods expose unmodifiable live views, so callers can traverse connections without bypassing graph validation.
 
 `DisjointSetUnion` maintains a partition of element IDs from `0` to `V - 1` using parent and component-size arrays. Initially each element is its own component. `find` first walks to the root and then redirects every visited element directly to that root (path compression). Both passes are iterative, so no recursion stack is needed. `union` attaches the smaller component's root to the larger component's root, updates its size, and decreases the component count. It returns `true` only when two different components were merged; repeated or self unions return `false`. Kruskal uses this result to reject edges whose endpoints are already connected.
 
@@ -64,6 +64,12 @@ The DSU also provides `connected`, `componentSize`, and `componentCount`. Repres
 `Kosaraju.compute(graph)` finds every strongly connected component of a directed graph. The first depth-first pass records each vertex after all its outgoing edges have been examined. The algorithm then builds a transpose by reversing every edge and starts traversals there in decreasing finishing order. Each second-pass traversal collects exactly one SCC. Both passes use explicit stacks, including saved edge iterators for first-pass finishing order, avoiding dependence on the Java call-stack depth.
 
 `SccResult` holds an immutable outer list of components and an immutable list of members for each component. Every vertex belongs to exactly one component, including isolated vertices; an empty directed graph has no components. Edge weights do not affect reachability, and duplicate edges or self-loops are supported. Undirected input is rejected. Component order and member order are traversal details rather than a ranking of districts. Vertices share an SCC only when each can reach the other; a one-way road between two SCCs does not merge them.
+
+`Dijkstra.compute(graph, source)` finds shortest distances from one source on either directed or undirected graphs. A binary-heap priority queue stores tentative `(vertex, distance)` states. Strictly shorter routes update the distance and predecessor and insert a new queue state; outdated states are discarded when removed. Strict improvement also prevents predecessor cycles when zero-weight cycles exist. All edges are checked for negative weights before the search, including edges unreachable from the source. An invalid source is rejected; an empty graph has no valid source. Distances use `long` so that paths whose total exceeds the integer range are represented correctly.
+
+`ShortestPathResult` snapshots its distance and predecessor arrays. `distanceTo(v)` returns the shortest distance or `UNREACHABLE` (`Long.MAX_VALUE`); `reachable(v)` distinguishes the two cases. `pathTo(v)` reconstructs an immutable source-to-destination vertex list iteratively, returns an empty list for an unreachable vertex, and returns `[source]` for the source itself. The original graph is preserved, and later graph updates do not change an existing result. Equal-distance alternatives may return different valid shortest paths.
+
+Dijkstra's greedy finalization requires non-negative edge weights: when the smallest tentative distance is removed from the queue, any alternative route through an unprocessed vertex cannot reduce it. A negative edge breaks that argument. For example, edges `s -> a` of weight 2, `s -> b` of weight 5, and `b -> a` of weight -4 give an actual shortest distance of 1 to `a`, although greedy finalization would accept 2 first. This implementation rejects negative weights rather than treating its queue behavior on such inputs as a valid Dijkstra guarantee; algorithms such as Bellman–Ford are appropriate when negative edges must be supported, with negative-cycle handling.
 
 ## Complexity Analysis
 
@@ -88,7 +94,7 @@ Topological ordering takes **O(V + E)** time and **O(V)** additional space with 
 
 Kosaraju takes **O(V + E)** time and **O(V + E)** additional space with adjacency lists. Each DFS pass visits every vertex and examines its outgoing edges once, and building the transpose also takes O(V + E). The transpose stores V adjacency lists and E reversed edges. Visited arrays, finishing order, explicit DFS stacks, and the output partition use O(V) space. More edges increase traversal work and transpose storage linearly; more vertices increase all vertex-indexed structures and the number of DFS starts in disconnected graphs.
 
-Dijkstra's complexity analysis will be added alongside its implementation.
+Dijkstra's implementation uses lazy queue insertion rather than decrease-key. It validates all E logical edges, initializes V distance/predecessor entries, and scans the outgoing edges of each reachable vertex once when its current shortest state is removed. There are at most O(E) successful relaxations and O(E + 1) queued states. Its total time is **O(V + E log(E + 1))** and additional space is **O(V + E)**, including the lazy heap and result snapshot. On simple graphs, the heap term can also be written using log(V + 1), since E is at most quadratic in V. More vertices increase array initialization and result storage; more edges increase validation, relaxation, and heap work. `distanceTo` and `reachable` take O(1); reconstructing a path of k vertices takes **O(k)** time and space. Reconstructing paths is separate from the shortest-distance search.
 
 ## Experimental Setup
 
@@ -116,7 +122,7 @@ Timing comparisons and interpretation will follow the measured results. They wil
 
 Run `bash scripts/test.sh`. It compiles the source and test classes, then runs each `*Test.java` entry point with Java assertions enabled (`-ea`). A compilation error or failed assertion stops the script with a nonzero exit status. The test runner uses only the JDK, keeping checks reproducible without downloading a testing framework.
 
-Graph tests cover directed edges, symmetric undirected connections, isolated and single vertices, an empty graph, parallel edges, duplicate weights, self-loops, negative weights, invalid endpoints, and collection access. Algorithm correctness tests will be added alongside their implementations.
+Graph tests cover directed edges, symmetric undirected connections, isolated and single vertices, an empty graph, parallel edges, duplicate weights, self-loops, negative weights, invalid endpoints, and collection access. Algorithm-specific correctness checks are described below.
 
 DSU tests cover separate components, transitive connectivity, repeated and self unions, component sizes and counts, union by size in both argument orders, repeated finds over a balanced merge sequence of 1,024 elements, empty/single-element sets, and invalid inputs. A fixed-seed test compares 150 unions on 24 elements against an independent reference that tracks components by relabeling every member; it checks every pair's connectivity and every component size after each merge.
 
@@ -128,6 +134,8 @@ Topological tests check vertex uniqueness, full coverage, and source-before-dest
 
 SCC tests cover a known four-component graph, one large SCC, DAGs, isolated vertices, empty/single-vertex graphs, one-way bridges, self-loops, duplicate edges, transpose invariance, and immutable nested results. Every partition is checked for complete coverage and exactly one membership per vertex. A 10,000-vertex chain and its cycle-closing variant exercise both iterative passes without recursion. For 80 fixed-seed random directed graphs, an independent transitive-closure matrix checks that two vertices share a component exactly when they are mutually reachable. The same cases cross-check topological cycle detection: a DAG has only singleton SCCs and no self-loops.
 
+Dijkstra tests cover known distances and reconstructed paths, unreachable vertices, nonzero sources, undirected roads in both directions, zero-weight cycles, equal-distance alternatives, parallel edges, stale queue entries, negative-weight rejection (including unreachable negative edges), invalid queries, single/empty graphs, and totals beyond the integer range. Result arrays and returned paths are checked for immutability. A 10,000-vertex chain exercises iterative path reconstruction. For 80 fixed-seed directed/undirected graphs, every source is compared against an independent Bellman–Ford-style repeated-relaxation reference. Reconstructed paths must use real edges, contain no repeated vertex, and have a total weight equal to the reported shortest distance.
+
 ## Conclusion
 
-Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Kosaraju identifies mutually reachable groups even when cycles exist. Conclusions comparing performance will be written after the remaining implementation and experiments are complete.
+Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Kosaraju identifies mutually reachable groups even when cycles exist. Dijkstra provides shortest routes and distances for non-negative road weights and explicitly identifies unreachable destinations. Conclusions comparing measured performance will be written after the experiments are complete.
