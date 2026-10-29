@@ -22,13 +22,14 @@ From the repository root:
 bash scripts/build.sh
 bash scripts/run.sh
 bash scripts/test.sh
+bash scripts/benchmark.sh
 ```
 
 The demo prints a four-district undirected network, then uses Kruskal to select roads with a minimum total construction cost of **17**. It reports connectivity and component count, runs Prim on the same network, and checks that both MST weights agree. It also orders directed service dependencies, detects a cycle after adding a back edge, and reports three strongly connected groups: `{0}`, `{1}`, and `{2, 3, 4}`. Group/member order is not significant. A separate route network demonstrates Dijkstra from district 0: distances to districts 0–3 are **0, 3, 2, 6**, and district 4 is unreachable. Both distances and actual paths are printed. Compiled classes are written to the ignored `build/` directory.
 
 ## Implementation
 
-The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, Kosaraju SCC, and Dijkstra are implemented. Experimental measurements and plots remain to be added.
+The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, Kosaraju SCC, and Dijkstra are implemented. Reproducible benchmark measurements are available; plots remain to be added.
 
 ```text
 src/
@@ -38,10 +39,12 @@ src/
   mst/            Kruskal, Prim, and immutable MST results
   connectivity/   Kahn topological ordering and Kosaraju SCC
   shortestpath/   Dijkstra distances and path reconstruction
+  benchmark/      Reproducible graph generation, validation, and CSV exports
+  metrics/        Optional per-invocation operation counters
 tests/            Java assertion-based correctness tests
 scripts/          Build, run, and test commands
 results/
-  tables/         Benchmark measurements (planned)
+  tables/         Raw timings, summaries, operation counts, and environment
   plots/          Execution-time plots (planned)
 ```
 
@@ -98,7 +101,7 @@ Dijkstra's implementation uses lazy queue insertion rather than decrease-key. It
 
 ## Experimental Setup
 
-Benchmarks will use a documented fixed random seed and these configurations:
+Run `bash scripts/benchmark.sh` to regenerate the checked-in tables, or pass another output directory to preserve them, for example `bash scripts/benchmark.sh /tmp/assignment3-results`. The runner uses these exact configurations:
 
 | Graph | Vertices | Edges |
 | --- | ---: | ---: |
@@ -106,17 +109,65 @@ Benchmarks will use a documented fixed random seed and these configurations:
 | Medium | 100 | 500 |
 | Large | 1,000 | 5,000 |
 
-Each applicable algorithm/configuration will have five measured repetitions using `System.nanoTime()`, with average execution times and defined operation counters. MST graphs will be connected and undirected. Directed experiments will document graph generation and include DAGs and guaranteed cycles for topological ordering. Detailed generation, warm-up, environment, and reproduction commands will be recorded when implemented.
+The base seed is **20261029**; each configuration uses `base_seed + V`. `java.util.Random` generates integer weights from **1 to 100**. Self-loops and duplicate endpoint pairs are excluded from benchmark inputs; equal weights remain possible. Endpoint pairs are canonicalized for undirected graphs, while opposite directed edges are distinct. Additional edges use rejection sampling until the exact edge count is reached; impossible edge counts are rejected before generation.
+
+- **Connected undirected:** shuffle the vertices, connect each vertex after the first to a randomly chosen earlier vertex, then add unique random roads. The initial spanning tree guarantees connectivity. Kruskal and Prim receive the same graph.
+- **DAG:** shuffle a hidden vertex order and add edges only from earlier to later positions. This guarantees acyclicity without relying on numeric vertex IDs.
+- **Cyclic directed:** insert `0 -> 1 -> 2 -> 0`, then add unique random directed edges. A cycle is guaranteed; other SCCs and unreachable vertices may also exist. Dijkstra uses this graph with source **0**.
+
+There are **21 cases**: seven algorithm/input combinations at each size (Kruskal and Prim on undirected input, Kosaraju and topological ordering on both directed types, and Dijkstra on cyclic directed input). Each case has **100 untimed warm-up invocations**, followed by **five measured invocations** using `System.nanoTime()`. Algorithms allocate fresh mutable state on every invocation. Returned results escape through a volatile reference and are validated outside the timer. Graph generation, reference solutions, fingerprints, validation, console output, and file writing are excluded. Required algorithm work such as Kruskal's edge copying/sorting and Kosaraju's transpose construction is included. Dijkstra measures the distance/predecessor search; path reconstruction is excluded.
+
+After all five timed invocations of a case, five separate **untimed instrumented invocations** collect operation counts. Both paths share the same implementation; ordinary calls pass no counter object. Counted and timed results must agree, and counts must be identical across the five repetitions. Optional counter checks remain in the common implementation, so this is not a claim of a completely instrumentation-free codebase.
+
+Each timed and counted result is checked: MSTs must agree in weight, use real roads, span the graph, and contain no cycle; DAG orders must respect every edge; cyclic orders must be rejected. SCCs are checked against an independent all-source breadth-first mutual-reachability reference, including exact partition membership. Dijkstra distances are checked against an independent repeated-relaxation reference. Reference work is excluded from timing.
+
+Counter definitions are intentionally specific:
+
+| CSV counter | What is counted |
+| --- | --- |
+| `edge_examinations` | Kruskal's sorted-edge scan; Prim's adjacency entries; topological indegree and processed-adjacency scans; Kosaraju's first pass, transpose build, and second pass; Dijkstra's negative-weight validation and reached adjacency entries. |
+| `key_comparisons` | Comparator calls in edge sorting or a binary heap, including tentative-distance comparisons in Dijkstra's heap. Ordinary branch comparisons are not included. |
+| `find_calls`, `union_calls` | DSU calls during algorithm execution, including the two finds inside each union. |
+| `parent_traversals` | Parent links followed in both passes of `find`. |
+| `parent_writes` | Assignments during union/path compression, including assignments that leave a parent unchanged; constructor initialization is excluded. |
+| `frontier_adds`, `frontier_removes` | Heap, FIFO queue, or explicit DFS-stack insertions/removals. Kosaraju includes both passes. |
+| `relaxation_attempts`, `successful_relaxations` | Dijkstra's reached outgoing edges considered and the subset producing strict distance improvements. |
+
+Zero means the defined event did not occur or is not used by that algorithm. Counts from different algorithms do not represent identical units of total work; for example, an undirected edge has two adjacency entries. All counters include only the algorithm invocation, not validation.
+
+The checked-in run used **OpenJDK 17.0.20.1**, **Linux amd64**, an **AMD Ryzen 7 5800H**, and a JVM heap fixed at **256 MiB** (`-Xms256m -Xmx256m`). Full runtime metadata is in [environment.properties](results/tables/environment.properties). SHA-256 fingerprints include vertex/edge counts, direction, and the ordered endpoint/weight triples. Graphs, result signatures, and counters reproduce with the same code/runtime; elapsed times depend on the machine and runtime conditions.
 
 ## Results
 
-No benchmarks have been run yet. Measured tables and plots will be added after the benchmark milestone.
+The run contains **105 measured observations** (21 cases × five repetitions), plus separate counter invocations. [Raw observations](results/tables/benchmark_runs.csv) record each elapsed time, result signature, graph fingerprint, and counters. [Summary statistics](results/tables/benchmark_summary.csv) contain average, minimum, median, maximum, population standard deviation, and per-invocation counters. Counters were identical across all five repetitions of each case. A separate full rerun to a temporary directory reproduced every fingerprint, result signature, and operation count; its different timings are not substituted into the checked-in run.
+
+Mean execution time in **microseconds** (the CSV files retain nanoseconds):
+
+| Algorithm / input | V=10, E=30 | V=100, E=500 | V=1,000, E=5,000 |
+| --- | ---: | ---: | ---: |
+| Kruskal / connected undirected | 24.01 | 121.38 | 1003.12 |
+| Prim / connected undirected | 24.13 | 118.76 | 887.50 |
+| Kosaraju / DAG | 44.38 | 74.02 | 564.61 |
+| Topological ordering / DAG | 14.78 | 23.42 | 216.70 |
+| Kosaraju / cyclic directed | 13.38 | 59.13 | 529.10 |
+| Topological ordering / cyclic directed | 0.92 | 18.54 | 9.66 |
+| Dijkstra / cyclic directed | 25.46 | 120.62 | 323.98 |
+
+Selected MST operation counts per invocation:
+
+| V / E | Kruskal key comparisons | Prim key comparisons | Kruskal finds | Kruskal unions | Prim heap adds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10 / 30 | 112 | 190 | 20 | 10 | 30 |
+| 100 / 500 | 3,832 | 7,727 | 574 | 287 | 500 |
+| 1,000 / 5,000 | 50,502 | 110,911 | 5,972 | 2,986 | 5,000 |
+
+All algorithm counters, including SCC, topological ordering, Dijkstra, and DSU parent work, are included in the CSV tables. Required plots and the full result discussion remain to be added.
 
 ## Comparison and Discussion
 
 Kruskal orders all logical edges globally and uses DSU to avoid cycles. Prim grows one tree at a time using the adjacency lists and a heap, discarding frontier edges that have become obsolete. Both implementations produce the same minimum total weight and component count; selected edges can differ when weights tie. Both support disconnected networks by returning minimum spanning forests. The lazy Prim implementation can store O(E) queue entries, so a smaller heap or faster execution should not be assumed without measurements.
 
-Timing comparisons and interpretation will follow the measured results. They will address Kruskal versus Prim, DSU optimizations, scaling of SCC and Dijkstra, topological ordering with and without cycles, and theoretical versus observed behavior.
+The timings are exploratory measurements from five invocations in one JVM, not a statistically conclusive performance ranking. JIT compilation, garbage collection, and scheduling can dominate short runs; retain the raw observations and dispersion when interpreting averages. Cyclic topological ordering can stop processing vertices early after counting indegrees, so its time need not increase monotonically across these particular graphs. V and E also change together in the prescribed configurations, preventing the two effects from being isolated. The full comparison and plots will interpret these limitations alongside complexity and operation counts.
 
 ## Testing
 
@@ -135,6 +186,8 @@ Topological tests check vertex uniqueness, full coverage, and source-before-dest
 SCC tests cover a known four-component graph, one large SCC, DAGs, isolated vertices, empty/single-vertex graphs, one-way bridges, self-loops, duplicate edges, transpose invariance, and immutable nested results. Every partition is checked for complete coverage and exactly one membership per vertex. A 10,000-vertex chain and its cycle-closing variant exercise both iterative passes without recursion. For 80 fixed-seed random directed graphs, an independent transitive-closure matrix checks that two vertices share a component exactly when they are mutually reachable. The same cases cross-check topological cycle detection: a DAG has only singleton SCCs and no self-loops.
 
 Dijkstra tests cover known distances and reconstructed paths, unreachable vertices, nonzero sources, undirected roads in both directions, zero-weight cycles, equal-distance alternatives, parallel edges, stale queue entries, negative-weight rejection (including unreachable negative edges), invalid queries, single/empty graphs, and totals beyond the integer range. Result arrays and returned paths are checked for immutability. A 10,000-vertex chain exercises iterative path reconstruction. For 80 fixed-seed directed/undirected graphs, every source is compared against an independent Bellman–Ford-style repeated-relaxation reference. Reconstructed paths must use real edges, contain no repeated vertex, and have a total weight equal to the reported shortest distance.
+
+Benchmark-support tests verify exact graph sizes, unique endpoints, valid weights, reproducible fingerprints, connectivity, DAG/cycle guarantees, saturated/boundary inputs, and invalid edge-count rejection. Independent validators are also checked with deliberately wrong SCC partitions, distances, and orders. Counter tests use small graphs with hand-counted operations and verify that instrumentation preserves normal results and snapshot isolation. The complete suite currently contains **96 passing tests**.
 
 ## Conclusion
 

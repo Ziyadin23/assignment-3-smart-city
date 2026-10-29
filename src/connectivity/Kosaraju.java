@@ -2,11 +2,14 @@ package connectivity;
 
 import graph.Edge;
 import graph.WeightedGraph;
+import metrics.OperationCounts;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+
+import static metrics.OperationCounts.Operation.*;
 
 public final class Kosaraju {
     private Kosaraju() {
@@ -14,16 +17,21 @@ public final class Kosaraju {
 
     /** Finds SCCs using finishing order followed by DFS on reversed edges. */
     public static SccResult compute(WeightedGraph graph) {
+        return compute(graph, null);
+    }
+
+    public static SccResult compute(WeightedGraph graph, OperationCounts counts) {
         if (!graph.isDirected()) {
             throw new IllegalArgumentException("Kosaraju requires a directed graph");
         }
 
-        List<Integer> order = finishingOrder(graph);
+        List<Integer> order = finishingOrder(graph, counts);
         List<List<Integer>> reversed = new ArrayList<>(graph.vertexCount());
         for (int vertex = 0; vertex < graph.vertexCount(); vertex++) {
             reversed.add(new ArrayList<>());
         }
         for (Edge edge : graph.edges()) {
+            if (counts != null) counts.increment(EDGE_EXAMINATIONS);
             reversed.get(edge.to()).add(edge.from());
         }
 
@@ -38,13 +46,17 @@ public final class Kosaraju {
             List<Integer> component = new ArrayList<>();
             visited[start] = true;
             stack.push(start);
+            if (counts != null) counts.increment(FRONTIER_ADDS);
             while (!stack.isEmpty()) {
                 int vertex = stack.pop();
+                if (counts != null) counts.increment(FRONTIER_REMOVES);
                 component.add(vertex);
                 for (int next : reversed.get(vertex)) {
+                    if (counts != null) counts.increment(EDGE_EXAMINATIONS);
                     if (!visited[next]) {
                         visited[next] = true;
                         stack.push(next);
+                        if (counts != null) counts.increment(FRONTIER_ADDS);
                     }
                 }
             }
@@ -53,7 +65,7 @@ public final class Kosaraju {
         return new SccResult(components);
     }
 
-    private static List<Integer> finishingOrder(WeightedGraph graph) {
+    private static List<Integer> finishingOrder(WeightedGraph graph, OperationCounts counts) {
         boolean[] visited = new boolean[graph.vertexCount()];
         ArrayDeque<Frame> stack = new ArrayDeque<>();
         List<Integer> order = new ArrayList<>();
@@ -63,17 +75,21 @@ public final class Kosaraju {
             }
             visited[start] = true;
             stack.push(new Frame(start, graph.neighbors(start).iterator()));
+            if (counts != null) counts.increment(FRONTIER_ADDS);
             while (!stack.isEmpty()) {
                 Frame frame = stack.peek();
                 if (frame.edges().hasNext()) {
                     int next = frame.edges().next().to();
+                    if (counts != null) counts.increment(EDGE_EXAMINATIONS);
                     if (!visited[next]) {
                         visited[next] = true;
                         stack.push(new Frame(next, graph.neighbors(next).iterator()));
+                        if (counts != null) counts.increment(FRONTIER_ADDS);
                     }
                 } else {
                     order.add(frame.vertex());
                     stack.pop();
+                    if (counts != null) counts.increment(FRONTIER_REMOVES);
                 }
             }
         }

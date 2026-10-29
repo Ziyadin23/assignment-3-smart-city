@@ -1,18 +1,28 @@
 package dsu;
 
+import metrics.OperationCounts;
+
+import static metrics.OperationCounts.Operation.*;
+
 /** Disjoint sets for fixed element IDs from 0 to elementCount - 1. */
 public final class DisjointSetUnion {
     private final int[] parent;
     private final int[] size;
     private int componentCount;
+    private final OperationCounts counts;
 
     public DisjointSetUnion(int elementCount) {
+        this(elementCount, null);
+    }
+
+    public DisjointSetUnion(int elementCount, OperationCounts counts) {
         if (elementCount < 0) {
             throw new IllegalArgumentException("Element count must be non-negative");
         }
         parent = new int[elementCount];
         size = new int[elementCount];
         componentCount = elementCount;
+        this.counts = counts;
         for (int element = 0; element < elementCount; element++) {
             parent[element] = element;
             size[element] = 1;
@@ -22,11 +32,17 @@ public final class DisjointSetUnion {
     /** Returns the representative, compressing every visited node's path to it. */
     public int find(int element) {
         validateElement(element);
+        if (counts != null) counts.increment(FIND_CALLS);
         int root = element;
         while (root != parent[root]) {
+            if (counts != null) counts.increment(PARENT_TRAVERSALS);
             root = parent[root];
         }
         while (element != root) {
+            if (counts != null) {
+                counts.increment(PARENT_TRAVERSALS);
+                counts.increment(PARENT_WRITES);
+            }
             int next = parent[element];
             parent[element] = root;
             element = next;
@@ -38,6 +54,7 @@ public final class DisjointSetUnion {
     public boolean union(int first, int second) {
         validateElement(first);
         validateElement(second);
+        if (counts != null) counts.increment(UNION_CALLS);
         int firstRoot = find(first);
         int secondRoot = find(second);
         if (firstRoot == secondRoot) {
@@ -49,6 +66,7 @@ public final class DisjointSetUnion {
             secondRoot = temporary;
         }
         parent[secondRoot] = firstRoot;
+        if (counts != null) counts.increment(PARENT_WRITES);
         size[firstRoot] += size[secondRoot];
         componentCount--;
         return true;
