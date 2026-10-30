@@ -16,6 +16,13 @@ The assignment has three tasks:
 
 Requirements: a **JDK 17 or newer** and **Bash**. There are no external Java dependencies; Maven and Gradle are not required.
 
+For a fresh checkout:
+
+```bash
+git clone https://github.com/Ziyadin23/assignment-3-smart-city.git
+cd assignment-3-smart-city
+```
+
 From the repository root:
 
 ```bash
@@ -228,6 +235,12 @@ SCC tests cover a known four-component graph, one large SCC, DAGs, isolated vert
 Dijkstra tests cover known distances and reconstructed paths, unreachable vertices, nonzero sources, undirected roads in both directions, zero-weight cycles, equal-distance alternatives, parallel edges, stale queue entries, negative-weight rejection (including unreachable negative edges), invalid queries, single/empty graphs, and totals beyond the integer range. Result arrays and returned paths are checked for immutability. A 10,000-vertex chain exercises iterative path reconstruction. For 80 fixed-seed directed/undirected graphs, every source is compared against an independent Bellman–Ford-style repeated-relaxation reference. Reconstructed paths must use real edges, contain no repeated vertex, and have a total weight equal to the reported shortest distance.
 
 Benchmark-support tests verify exact graph sizes, unique endpoints, valid weights, reproducible fingerprints, connectivity, DAG/cycle guarantees, saturated/boundary inputs, and invalid edge-count rejection. Independent validators are also checked with deliberately wrong SCC partitions, distances, and orders. Counter tests use small graphs with hand-counted operations and verify that instrumentation preserves normal results and snapshot isolation. The complete suite currently contains **96 passing tests**.
+
+### Reproduction verification
+
+A fresh clone from GitHub was built and checked with JDK 17.0.20.1. All **96 tests passed**, and the demo produced MST cost 17, the expected dependency/cycle and SCC results, and shortest distances 0, 3, 2, 6 with district 4 unreachable. A full benchmark rerun validated all **105 observations across 21 cases**: graph fingerprints, result signatures, and every operation counter matched the stored run; elapsed times differed as expected. Summary statistics were independently checked against both sets of raw observations.
+
+Regenerating plots from the stored summary reproduced all four PNG/SVG files byte for byte in the same plotting environment. Plotting the fresh benchmark summary also succeeded. README image and result links resolve to tracked files. The original measured tables are retained so the report and its figures describe one consistent run.
 
 ## Conclusion
 
