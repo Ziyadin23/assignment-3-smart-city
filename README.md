@@ -29,7 +29,7 @@ The demo prints a four-district undirected network, then uses Kruskal to select 
 
 ## Implementation
 
-The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, Kosaraju SCC, and Dijkstra are implemented. Reproducible benchmark measurements are available; plots remain to be added.
+The graph representation, disjoint set union structure, Kruskal, Prim, topological ordering, Kosaraju SCC, and Dijkstra are implemented. Reproducible benchmark measurements, plots, and analysis are included below.
 
 ```text
 src/
@@ -42,10 +42,10 @@ src/
   benchmark/      Reproducible graph generation, validation, and CSV exports
   metrics/        Optional per-invocation operation counters
 tests/            Java assertion-based correctness tests
-scripts/          Build, run, and test commands
+scripts/          Build, run, test, benchmark, and plotting commands
 results/
   tables/         Raw timings, summaries, operation counts, and environment
-  plots/          Execution-time plots (planned)
+  plots/          Execution-time plots in PNG and SVG
 ```
 
 `WeightedGraph` stores an adjacency list and a list of logical edges. Vertices use consecutive IDs from `0` to `V - 1`. The constructor selects directed or undirected behavior. For an undirected road, both endpoints have an outgoing adjacency entry, while `edges()` lists that road once so that Kruskal will not process it twice. A self-loop is stored once in its vertex's adjacency list. Parallel edges and duplicate weights are preserved.
@@ -161,13 +161,53 @@ Selected MST operation counts per invocation:
 | 100 / 500 | 3,832 | 7,727 | 574 | 287 | 500 |
 | 1,000 / 5,000 | 50,502 | 110,911 | 5,972 | 2,986 | 5,000 |
 
-All algorithm counters, including SCC, topological ordering, Dijkstra, and DSU parent work, are included in the CSV tables. Required plots and the full result discussion remain to be added.
+All algorithm counters, including SCC, topological ordering, Dijkstra, and DSU parent work, are included in the CSV tables.
+
+### Execution-time plots
+
+![Execution time against vertex count](results/plots/execution_time_vs_vertices.png)
+
+![Execution time against edge count](results/plots/execution_time_vs_edges.png)
+
+Points show the arithmetic mean; error bars show the observed minimum and maximum across five runs, **not confidence intervals**. Both axes are logarithmic, and each panel has its own time scale. Lines connect the three measured configurations; intermediate sizes were not measured. V and E change together, so these are two views of the same observations, not experiments isolating either variable. Vector versions: [against V](results/plots/execution_time_vs_vertices.svg) and [against E](results/plots/execution_time_vs_edges.svg).
+
+Plotting requires Python 3.10+ and Matplotlib; Java execution does not. From the repository root:
+
+```bash
+python3 -m venv /tmp/assignment3-plot-env
+/tmp/assignment3-plot-env/bin/python -m pip install -r requirements-plot.txt
+/tmp/assignment3-plot-env/bin/python scripts/plot_results.py
+```
+
+The script reads the summary CSV without rerunning benchmarks or changing measurements. To plot a separate benchmark run, use `--input /tmp/assignment3-results/benchmark_summary.csv --output /tmp/assignment3-plots`. It checks that all 21 expected cases are present exactly once, with five repetitions and finite positive timing ranges.
 
 ## Comparison and Discussion
 
 Kruskal orders all logical edges globally and uses DSU to avoid cycles. Prim grows one tree at a time using the adjacency lists and a heap, discarding frontier edges that have become obsolete. Both implementations produce the same minimum total weight and component count; selected edges can differ when weights tie. Both support disconnected networks by returning minimum spanning forests. The lazy Prim implementation can store O(E) queue entries, so a smaller heap or faster execution should not be assumed without measurements.
 
-The timings are exploratory measurements from five invocations in one JVM, not a statistically conclusive performance ranking. JIT compilation, garbage collection, and scheduling can dominate short runs; retain the raw observations and dispersion when interpreting averages. Cyclic topological ordering can stop processing vertices early after counting indegrees, so its time need not increase monotonically across these particular graphs. V and E also change together in the prescribed configurations, preventing the two effects from being isolated. The full comparison and plots will interpret these limitations alongside complexity and operation counts.
+### Kruskal, Prim, and DSU
+
+On the largest graph, Prim averages **887.50 µs**, compared with **1003.12 µs** for Kruskal, about **11.5% less elapsed time** in this run. The small means are nearly equal (24.13 versus 24.01 µs); the medium means are also close (118.76 versus 121.38 µs), with overlapping observed ranges. Five samples on one graph per size do not establish a statistically reliable ranking. Both algorithms agree on MST weight at every size.
+
+Kruskal makes 50,502 sorting comparisons on the large graph; Prim makes 110,911 heap comparisons and inserts/removes 5,000 frontier entries. Kruskal stops after 2,986 edge attempts once its forest is connected, although it first sorts all 5,000 edges. Comparator counts alone cannot predict time: DSU operations, allocation, traversal, and heap/sort access patterns differ.
+
+The large Kruskal case performs 5,972 finds and 10,878 parent traversals, averaging **1.82 parent links across both find passes per call**, with 6,438 parent assignments. This is consistent with shallow trees under union by size and path compression. The traversal count is not a direct measurement of tree height, and assignments include redundant compression writes. No unoptimized DSU baseline was measured, so the experiment does not quantify either optimization's speedup; their amortized benefit follows from the analysis above.
+
+### Directed connectivity
+
+Kosaraju examines exactly **3E** edges: 90, 1,500, and 15,000 for each directed graph type. Both passes together add and remove **2V** stack entries. These counts match O(V + E) work regardless of cycles. Measured means rise to 564.61 µs for the large DAG and 529.10 µs for the large cyclic graph. Their different small-input times and imperfect scaling show that constant costs and runtime variability matter; three timings cannot prove an asymptotic bound.
+
+Topological ordering examines **2E** edges on each DAG and processes all V vertices. On cyclic inputs, it counts all E incoming edges but can process only the vertices outside the blocked dependency region. It removes **1, 0, and 4** vertices at the three sizes, examining **31, 500, and 5,019** edges in total. Its lower times therefore represent cycle detection without a complete ordering, rather than the cost of successfully scheduling the full graph.
+
+The medium cyclic topological mean (18.54 µs) exceeds the large mean (9.66 µs). Its raw samples include a **52.16 µs** maximum, while its median is **10.13 µs**, close to the large median of **9.33 µs**. This outlier and the differing processable prefixes explain why average time need not increase monotonically, despite the common O(V + E) worst-case bound.
+
+### Dijkstra and measurement limits
+
+Dijkstra's means increase from **25.46** to **120.62** to **323.98 µs**. Relaxation attempts are **29, 500, and 4,981**; strict improvements are **9, 153, and 1,429**, producing **10, 154, and 1,430** heap insertions including the source. At the largest size, 23,709 heap comparator calls accompany 9,981 edge examinations: 5,000 during negative-weight validation and 4,981 during reachable-edge traversal. Lazy insertion can enqueue a vertex multiple times, so heap insertion counts are not reachable-vertex counts. Path reconstruction is excluded from these times.
+
+The increasing traversal and queue work is consistent with the implementation's O(V + E log(E + 1)) upper bound, but these three correlated V/E configurations do not isolate either variable or establish a fitted growth law. SCC and topological DAG counts provide clearer evidence of linear edge scanning than elapsed time alone.
+
+All timings are exploratory measurements from five invocations in one JVM on one machine, using one fixed-seed graph per type and size. Warm-up reduces initial compilation effects but does not control later JIT compilation, garbage collection, or operating-system scheduling. There are no independent JVM forks or multiple-seed samples. The recorded min/median/max and population standard deviation describe this run's dispersion, not uncertainty across all graphs. Optional counter checks remain in the shared implementation even during ordinary calls. Counts have algorithm-specific definitions, memory usage was not measured, and no claim about empirical space consumption or universal algorithm superiority follows from these results.
 
 ## Testing
 
@@ -191,4 +231,4 @@ Benchmark-support tests verify exact graph sizes, unique endpoints, valid weight
 
 ## Conclusion
 
-Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Kosaraju identifies mutually reachable groups even when cycles exist. Dijkstra provides shortest routes and distances for non-negative road weights and explicitly identifies unreachable destinations. Conclusions comparing measured performance will be written after the experiments are complete.
+Kruskal and Prim find minimum-cost infrastructure networks and report when districts cannot all be connected. Their MST weights agree on the correctness tests. Topological ordering schedules directed dependencies and detects cycles that prevent a valid schedule. Kosaraju identifies mutually reachable groups even when cycles exist. Dijkstra provides shortest routes and distances for non-negative road weights and explicitly identifies unreachable destinations. The measurements show similar small-input MST times and a lower Prim mean on the largest tested network, with no universal performance ranking implied. Linear edge counts explain connectivity traversal work; cycle rejection can require less work than constructing a complete ordering. Algorithm choice should follow the task and input assumptions: MST for minimum-cost connectivity, topological ordering for acyclic dependencies, SCC for mutual reachability, and Dijkstra for non-negative shortest paths. Negative-weight routes require a different shortest-path algorithm.
